@@ -17,7 +17,14 @@ from typing import Any
 import pyarrow as pa
 from data_processing.transform import AbstractTableTransform, TransformConfiguration
 from data_processing.utils import CLIArgumentProvider, TransformUtils, get_logger
-from dpk_doc_chunk.chunkers import ChunkingExecutor, DLJsonChunker, LIMarkdown, LITokenTextSplitter
+from dpk_doc_chunk.chunkers import (
+    ChunkingExecutor,
+    DLJsonChunker,
+    LIMarkdown,
+    LITokenTextSplitter,
+    LCRecursiveCharacterTextSplitter,
+    LCTokenTextSplitter
+)
 
 
 short_name = "doc_chunk"
@@ -25,14 +32,15 @@ cli_prefix = f"{short_name}_"
 content_column_name_key = "content_column_name"
 doc_id_column_name_key = "doc_id_column_name"
 chunking_type_key = "chunking_type"
-chunk_size_tokens_key = "chunk_size_tokens"
-chunk_overlap_tokens_key = "chunk_overlap_tokens"
+chunk_size_key = "chunk_size"
+chunk_overlap_key = "chunk_overlap"
 output_chunk_column_name_key = "output_chunk_column_name"
 output_chunk_column_id_key = "output_chunk_column_id"
 output_source_doc_id_column_name_key = "output_source_doc_id_column_name"
 output_jsonpath_column_name_key = "output_jsonpath_column_name"
 output_pageno_column_name_key = "output_pageno_column_name"
 output_bbox_column_name_key = "output_bbox_column_name"
+chunking_model_name_key = "chunking_model_name"
 content_column_name_cli_param = f"{cli_prefix}{content_column_name_key}"
 doc_id_column_name_cli_param = f"{cli_prefix}{doc_id_column_name_key}"
 chunking_type_cli_param = f"{cli_prefix}{chunking_type_key}"
@@ -41,13 +49,16 @@ output_source_doc_id_column_name_cli_param = f"{cli_prefix}{output_source_doc_id
 output_jsonpath_column_name_cli_param = f"{cli_prefix}{output_jsonpath_column_name_key}"
 output_pageno_column_name_cli_param = f"{cli_prefix}{output_pageno_column_name_key}"
 output_bbox_column_name_cli_param = f"{cli_prefix}{output_bbox_column_name_key}"
-chunk_size_tokens_cli_param = f"{cli_prefix}{chunk_size_tokens_key}"
-chunk_overlap_tokens_cli_param = f"{cli_prefix}{chunk_overlap_tokens_key}"
+chunk_size_cli_param = f"{cli_prefix}{chunk_size_key}"
+chunk_overlap_cli_param = f"{cli_prefix}{chunk_overlap_key}"
+chunking_model_name_cli_param = f"{cli_prefix}{chunking_model_name_key}"
 
 class chunking_types(str, enum.Enum):
     LI_MARKDOWN = "li_markdown"
     DL_JSON = "dl_json"
     LI_TOKEN_TEXT = "li_token_text"
+    LC_RECURSIVE_TEXT = "lc_recursive_text"
+    LC_TOKEN_TEXT = "lc_token_text"
 
     def __str__(self):
         return str(self.value)
@@ -62,8 +73,9 @@ default_output_source_doc_id_column_name = "source_document_id"
 default_output_jsonpath_column_name = "doc_jsonpath"
 default_output_pageno_column_name = "page_number"
 default_output_bbox_column_name = "bbox"
-default_chunk_size_tokens = 128
-default_chunk_overlap_tokens = 30
+default_chunk_size = 128
+default_chunk_overlap = 30
+default_chunking_model_name = "BAAI/bge-small-en-v1.5"
 
 class DocChunkTransform(AbstractTableTransform):
     """
@@ -100,8 +112,11 @@ class DocChunkTransform(AbstractTableTransform):
         self.output_bbox_column_name_key = config.get(output_bbox_column_name_key, default_output_bbox_column_name)
 
         # Parameters for Fixed-size with overlap chunking 
-        self.chunk_size_tokens = config.get(chunk_size_tokens_key, default_chunk_size_tokens)
-        self.chunk_overlap_tokens = config.get(chunk_overlap_tokens_key, default_chunk_overlap_tokens)
+        self.chunk_size = config.get(chunk_size_key, default_chunk_size)
+        self.chunk_overlap = config.get(chunk_overlap_key, default_chunk_overlap)
+
+        # Additional parameters for LangChain's token-text chunking
+        self.chunking_model_name = config.get(chunking_model_name_key, default_chunking_model_name)
 
         # Initialize chunker
 
@@ -121,8 +136,23 @@ class DocChunkTransform(AbstractTableTransform):
             self.chunker = LITokenTextSplitter(
                 output_chunk_column_name=self.output_chunk_column_name,
                 output_chunk_column_id=self.output_chunk_column_id,
-                chunk_size_tokens=self.chunk_size_tokens,
-                chunk_overlap_tokens=self.chunk_overlap_tokens
+                chunk_size_tokens=self.chunk_size,
+                chunk_overlap_tokens=self.chunk_overlap
+            )
+        elif self.chunking_type == chunking_types.LC_RECURSIVE_TEXT:
+            self.chunker = LCRecursiveCharacterTextSplitter(
+                output_chunk_column_name=self.output_chunk_column_name,
+                output_chunk_column_id=self.output_chunk_column_id,
+                chunk_size_tokens=self.chunk_size,
+                chunk_overlap_tokens=self.chunk_overlap
+            )
+        elif self.chunking_type == chunking_types.LC_TOKEN_TEXT:
+            self.chunker = LCTokenTextSplitter(
+                output_chunk_column_name=self.output_chunk_column_name,
+                output_chunk_column_id=self.output_chunk_column_id,
+                chunk_size_tokens=self.chunk_size,
+                chunk_overlap_tokens=self.chunk_overlap,
+                model_name=self.chunking_model_name
             )
         else:
             raise RuntimeError(f"{self.chunking_type=} is not valid.")
@@ -222,16 +252,22 @@ class DocChunkTransformConfiguration(TransformConfiguration):
             help="Column name to store the bbox of the chunk",
         )
         parser.add_argument(
-            f"--{chunk_size_tokens_cli_param}",
-            default=default_chunk_size_tokens,
+            f"--{chunk_size_cli_param}",
+            default=default_chunk_size,
             type=int,
-            help="Size of the chunk in tokens for the fixed-sized chunker",
+            help="Size of the chunk in characters/tokens for the fixed-sized chunker",
         )
         parser.add_argument(
-            f"--{chunk_overlap_tokens_cli_param}",
-            default=default_chunk_overlap_tokens,
+            f"--{chunk_overlap_cli_param}",
+            default=default_chunk_overlap,
             type=int,
-            help="Number of tokens overlapping between chunks for the fixed-sized chunker.",
+            help="Number of characters/tokens overlapping between chunks for the fixed-sized chunker.",
+        )
+        parser.add_argument(
+            f"--{chunking_model_name_cli_param}",
+            default=default_chunking_model_name,
+            type=str,
+            help="Model to use to tokenize text with LangChain",
         )
         parser.add_argument(
             f"--{cli_prefix}dl_min_chunk_len",

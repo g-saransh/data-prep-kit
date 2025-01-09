@@ -18,6 +18,7 @@ from llama_index.core.node_parser.text.token import TokenTextSplitter
 from llama_index.core import Document as LIDocument
 from llama_index.core.node_parser import MarkdownNodeParser
 from docling_core.transforms.chunker import HierarchicalChunker, DocMeta
+from langchain.text_splitter import RecursiveCharacterTextSplitter, SentenceTransformersTokenTextSplitter
 
 
 class ChunkingExecutor(metaclass=ABCMeta):
@@ -113,6 +114,150 @@ class LITokenTextSplitter(ChunkingExecutor):
             List[str]: List of chunked text.
         """
         text_splitter = TokenTextSplitter(
+            chunk_size=self.chunk_size, 
+            chunk_overlap=self.chunk_overlap
+        )
+        return text_splitter.split_text(text)
+
+
+    def chunk(self, text: str) -> Iterator[Dict]:
+        """
+        Chunks input text into fixed-window lengths with token overlap.
+
+        Args:
+            text (str): Input text to be chunked.
+
+        Yields:
+            Dict: Chunked text with ID.
+        """
+        chunk_id = 0
+        for chunk in self._chunk_text(text):
+            yield {
+                self.output_chunk_column_id: chunk_id,
+                self.output_chunk_column_name: chunk,
+            }
+            chunk_id += 1
+
+
+class LCRecursiveCharacterTextSplitter(ChunkingExecutor):
+    """
+    A text chunker that leverages LangChain's recursive text splitter. 
+
+    The chunking process ensures that each chunk contains a specific number of characters, and an optional overlap between 
+    chunks can be specified to preserve context between the chunks. 
+
+    Args:
+        output_chunk_column_name (str): Name of the output column containing the text of each chunk.
+        output_chunk_column_id (str): Name of the output column containing the ID of each chunk.
+        chunk_size_chars (int): Length of each chunk in number of characters.
+        chunk_overlap_chars (int): Number of characters overlapping between consecutive chunks.
+
+    Attributes:
+        output_chunk_column_name (str)
+        output_chunk_column_id (str)
+        chunk_size_chars (int)
+        chunk_overlap_chars (int)
+    """
+
+    def __init__(
+        self,
+        output_chunk_column_name: str,
+        output_chunk_column_id: str,
+        chunk_size_chars: int, 
+        chunk_overlap_chars: int
+    ):
+        self.output_chunk_column_name = output_chunk_column_name
+        self.output_chunk_column_id = output_chunk_column_id
+        self.chunk_size = chunk_size_chars
+        self.chunk_overlap = chunk_overlap_chars
+
+
+    def _chunk_text(self, text: str) -> List[str]:
+        """
+        Internal method to chunk text using RecursiveCharacterTextSplitter.
+
+        Args:
+            text (str): Input text to be chunked.
+
+        Returns:
+            List[str]: List of chunked text.
+        """
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size, 
+            chunk_overlap=self.chunk_overlap
+        )
+        return text_splitter.split_text(text)
+
+
+    def chunk(self, text: str) -> Iterator[Dict]:
+        """
+        Chunks input text into fixed-window lengths with character overlap.
+
+        Args:
+            text (str): Input text to be chunked.
+
+        Yields:
+            Dict: Chunked text with ID.
+        """
+        chunk_id = 0
+        for chunk in self._chunk_text(text):
+            yield {
+                self.output_chunk_column_id: chunk_id,
+                self.output_chunk_column_name: chunk,
+            }
+            chunk_id += 1
+
+
+class LCTokenTextSplitter(ChunkingExecutor):
+    """
+    A text chunker that leverages LangChain's token-based text splitter. This splitter breaks input text into 
+    fixed-window chunks, with each chunk measured in tokens rather than characters. 
+
+    The chunking process ensures that each chunk contains a specific number of tokens, and an optional overlap between 
+    chunks (also measured in tokens) can be specified to preserve context between the chunks. 
+
+    Args:
+        output_chunk_column_name (str): Name of the output column containing the text of each chunk.
+        output_chunk_column_id (str): Name of the output column containing the ID of each chunk.
+        chunk_size_tokens (int): Length of each chunk in number of tokens.
+        chunk_overlap_tokens (int): Number of tokens overlapping between consecutive chunks.
+        model_name (str): Name of the model to use for tokenization
+
+    Attributes:
+        output_chunk_column_name (str)
+        output_chunk_column_id (str)
+        chunk_size_tokens (int)
+        chunk_overlap_tokens (int)
+        model_name (str)
+    """
+
+    def __init__(
+        self,
+        output_chunk_column_name: str,
+        output_chunk_column_id: str,
+        chunk_size_tokens: int, 
+        chunk_overlap_tokens: int,
+        model_name: str
+    ):
+        self.output_chunk_column_name = output_chunk_column_name
+        self.output_chunk_column_id = output_chunk_column_id
+        self.chunk_size = chunk_size_tokens
+        self.chunk_overlap = chunk_overlap_tokens
+        self.model_name = model_name
+
+
+    def _chunk_text(self, text: str) -> List[str]:
+        """
+        Internal method to chunk text using TokenTextSplitter.
+
+        Args:
+            text (str): Input text to be chunked.
+
+        Returns:
+            List[str]: List of chunked text.
+        """
+        text_splitter = SentenceTransformersTokenTextSplitter(
+            model_name=self.model_name,
             chunk_size=self.chunk_size, 
             chunk_overlap=self.chunk_overlap
         )
