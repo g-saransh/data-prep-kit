@@ -12,7 +12,8 @@
 
 import time
 from argparse import ArgumentParser, Namespace
-from typing import Any
+from typing import Any, cast
+import numpy as np
 
 import pyarrow as pa
 from data_processing.transform import AbstractTableTransform, TransformConfiguration
@@ -63,12 +64,16 @@ class TextEncoderTransform(AbstractTableTransform):
         # make sure that the content column exists
         TransformUtils.validate_columns(table=table, required=[self.content_column_name])
 
-        embeddings = list(
-            map(
-                lambda x: self.model.encode(x, normalize_embeddings=True),
-                table[self.content_column_name].to_pylist(),
+        embeddings = cast(
+            np.ndarray,
+            self.model.encode(table[self.content_column_name].to_pylist(),
+                batch_size=64,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+                device=None
             ),
-        )
+        ).tolist()
+
         result = TransformUtils.add_column(table=table, name=self.output_embeddings_column_name, content=embeddings)
 
         metadata = {"nfiles": 1, "nrows": len(result)}
