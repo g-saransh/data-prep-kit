@@ -143,8 +143,8 @@ class DocChunkTransform(AbstractTableTransform):
             self.chunker = LCRecursiveCharacterTextSplitter(
                 output_chunk_column_name=self.output_chunk_column_name,
                 output_chunk_column_id=self.output_chunk_column_id,
-                chunk_size_tokens=self.chunk_size,
-                chunk_overlap_tokens=self.chunk_overlap
+                chunk_size_chars=self.chunk_size,
+                chunk_overlap_chars=self.chunk_overlap
             )
         elif self.chunking_type == chunking_types.LC_TOKEN_TEXT:
             self.chunker = LCTokenTextSplitter(
